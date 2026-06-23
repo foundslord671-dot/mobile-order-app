@@ -3,26 +3,32 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-# 1. Database Core Connection
+# 1. Database Connection Engine
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 try:
     secret_creds = json.loads(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(secret_creds, scopes=scope)
     client = gspread.authorize(creds)
     workbook = client.open("mobile vendor DB")
-    master_sheet = workbook.sheet1 # Sheet1 tracks registered vendors
+    
+    # Target the very first sheet tab dynamically
+    master_sheet = workbook.get_worksheet(0) 
 except Exception as e:
-    st.error("Database connection setup required.")
+    st.error("Database connection failed. Please check your Streamlit Secrets.")
     st.stop()
 
-# Ensure Master Registry has correct headers on initial launch
+# 2. HEALER LOOP: Auto-repair the Google Sheet layout if empty
 try:
-    if master_sheet.row_count == 0 or not master_sheet.row_values(1):
-        master_sheet.append_row(["Vendor Name", "Password/PIN", "Bank Account Details"])
+    # Try reading the first row
+    first_row = master_sheet.row_values(1)
+    if not first_row or "Vendor Name" not in first_row:
+        # If headers are missing or blank, overwrite row 1 automatically!
+        master_sheet.insert_row(["Vendor Name", "Password/PIN", "Bank Account Details"], 1)
 except Exception:
-    pass
+    st.error("Could not write initial setup to Google Sheets. Verify permissions.")
+    st.stop()
 
-# 2. Main Portal Interface Layout
+# 3. Main Portal Interface Layout
 st.title("🚀 VendorSpace: Automated DM-Free Ordering")
 st.write("The platform built for online vendors to receive clear orders without messy chats.")
 
@@ -42,34 +48,32 @@ with app_mode[1]:
     
     if st.button("Create My Automated Shop Link"):
         if new_vendor and new_pin and new_bank:
-            # Check if name is already taken
             existing_records = master_sheet.get_all_records()
-            taken_names = [row["Vendor Name"] for row in existing_records]
+            taken_names = [row.get("Vendor Name") for row in existing_records if row.get("Vendor Name")]
             
             if new_vendor in taken_names:
-                st.error("❌ This Business Name is already registered. Please choose a slightly different variation.")
+                st.error("❌ This Business Name is already registered.")
             else:
-                # 1. Log them into the central directory
+                # Log them into the master folder
                 master_sheet.append_row([new_vendor, new_pin, new_bank])
                 
-                # 2. Automatically create a brand new sheet tab just for their incoming orders
+                # Automatically create their custom database workspace tab
                 try:
                     new_ws = workbook.add_worksheet(title=new_vendor, rows="1000", cols="10")
                     new_ws.append_row(["Customer Name", "Phone Number", "Delivery Address/Info", "Items Ordered", "Amount Paid", "Receipt Status"])
-                    st.success(f"🎉 Success! '{new_vendor.replace('_',' ')}' is now live. Customers can now select you from the shop tab.")
-                except Exception as ws_err:
-                    st.error("Shop registry succeeded, but workspace creation timed out. Please try again.")
+                    st.success(f"🎉 Success! '{new_vendor.replace('_',' ')}' is now live. Refresh the shop page to see it!")
+                except Exception:
+                    st.error("Shop registered, but workspace creation timed out. Check your Google Sheet to see if the tab was created!")
         else:
-            st.error("❌ All registration fields are required to generate your checkout workspace.")
+            st.error("❌ All registration fields are required.")
 
 # -------------------------------------------------------------
 # TAB 0: CLIENT CHECKOUT SYSTEM (The Storefront Interface)
 # -------------------------------------------------------------
 with app_mode[0]:
-    # Fetch latest directory list directly from database
     try:
         records = master_sheet.get_all_records()
-        active_vendors = [row["Vendor Name"] for row in records if row["Vendor Name"]]
+        active_vendors = [row.get("Vendor Name") for row in records if row.get("Vendor Name")]
     except Exception:
         active_vendors = []
 
@@ -79,20 +83,18 @@ with app_mode[0]:
         chosen_store = st.selectbox("🏬 Choose the store you are buying from:", ["-- Select Shop --"] + active_vendors)
         
         if chosen_store != "-- Select Shop --":
-            # Match metadata for selected shop
-            current_vendor_data = next(item for item in records if item["Vendor Name"] == chosen_store)
-            active_payment_info = current_vendor_data["Bank Account Details"]
+            current_vendor_data = next(item for item in records if item.get("Vendor Name") == chosen_store)
+            active_payment_info = current_vendor_data.get("Bank Account Details", "No bank details listed.")
             
             st.subheader(f"🛒 Shopping at: {chosen_store.replace('_', ' ')}")
             st.info(f"📌 **Payment Instructions:**\n\nTransfer your total order value to:\n`{active_payment_info}`")
             st.markdown("---")
             
-            # Checkout Form Entry Fields
             cust_name = st.text_input("Your Full Name:")
             cust_phone = st.text_input("Your Phone/WhatsApp Number:")
-            cust_items = st.text_input("Items to Buy (e.g., 3GB Data, Red Dress, Size 42 Shoes):")
+            cust_items = st.text_input("Items to Buy (e.g., 3GB Data, Shoes):")
             cust_cost = st.text_input("Total Bill Amount (₦):")
-            cust_address = st.text_area("Your Complete Delivery Address or Target Account Info:")
+            cust_address = st.text_area("Your Complete Delivery Address:")
             cust_receipt = st.file_uploader("Upload Your Payment Screenshot Confirmation:", type=["png", "jpg", "jpeg"])
             
             st.markdown("---")
@@ -101,22 +103,16 @@ with app_mode[0]:
                 if cust_name and cust_phone and cust_items and cust_cost and cust_address:
                     if cust_receipt:
                         try:
-                            # Target the specific vendor's private spreadsheet tab dynamically
                             vendor_target_sheet = workbook.worksheet(chosen_store)
                             status_str = f"Uploaded: {cust_receipt.name}"
                             
                             vendor_target_sheet.append_row([
-                                cust_name, 
-                                cust_phone, 
-                                cust_address, 
-                                cust_items, 
-                                f"₦{cust_cost}", 
-                                status_str
+                                cust_name, cust_phone, cust_address, cust_items, f"₦{cust_cost}", status_str
                             ])
-                            st.success(f"🎉 Order sent! {chosen_store.replace('_',' ')} has logged your details and payment screenshot.")
+                            st.success(f"🎉 Order sent successfully to {chosen_store.replace('_',' ')}!")
                         except gspread.exceptions.WorksheetNotFound:
-                            st.error("Error connecting to this specific vendor's sheet partition.")
+                            st.error("Error: This vendor's order tab was not found.")
                     else:
-                        st.warning("⚠️ Please attach your payment transfer screenshot to clear order verification.")
+                        st.warning("⚠️ Please attach your payment transfer screenshot.")
                 else:
-                    st.error("❌ Please provide all order, pricing, and delivery data before hitting submit.")
+                    st.error("❌ Please fill out all fields.")
