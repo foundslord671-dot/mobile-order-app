@@ -5,11 +5,13 @@ import pandas as pd
 
 # --- CONFIGURATION ---
 st.set_page_config(
-    page_title="VendorSpace SaaS", 
+    page_title="VendorSpace", 
     layout="centered", 
     initial_sidebar_state="collapsed"
 )
 
+# The ID of your Master_Registry sheet
+MASTER_SHEET_ID = "1I0672UQXrjuFRBK_dAgHWN5gnqQoc-8sT0iPyuQnLeE"
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource
@@ -20,14 +22,16 @@ def get_gspread_client():
 
 @st.cache_data(ttl=300)
 def get_master_registry():
-    # Using your specific Sheet ID to ensure the connection works flawlessly
-    MASTER_SHEET_ID = "1I0672UQXrjuFRBK_dAgHWN5gnqQoc-8sT0iPyuQnLeE"
     client = get_gspread_client()
-    return client.open_by_key(MASTER_SHEET_ID).sheet1.get_all_records()
+    try:
+        # We use the explicit ID here to ensure a direct connection
+        return client.open_by_key(MASTER_SHEET_ID).sheet1.get_all_records()
+    except Exception as e:
+        st.error(f"Error connecting to Registry: {e}")
+        return []
 
 def register_vendor(name, email, sheet_id):
     client = get_gspread_client()
-    MASTER_SHEET_ID = "1I0672UQXrjuFRBK_dAgHWN5gnqQoc-8sT0iPyuQnLeE"
     registry_sheet = client.open_by_key(MASTER_SHEET_ID).sheet1
     registry_sheet.append_row([name, email, sheet_id, "Pending"])
 
@@ -38,7 +42,6 @@ def authenticate_vendor(email):
 # --- APP INTERFACE ---
 st.title("🚀 VendorSpace")
 
-# Navigation
 menu = st.sidebar.radio("Menu", ["Login", "Register as Vendor", "Admin"])
 
 if menu == "Login":
@@ -51,13 +54,12 @@ if menu == "Login":
             st.session_state['vendor'] = vendor
             st.rerun()
         else:
-            st.error("Account pending or not found. Please contact admin.")
+            st.error("Account pending, not found, or access denied.")
 
     if 'vendor' in st.session_state:
         v = st.session_state['vendor']
         st.success(f"Welcome, {v['vendor_name']}!")
         client = get_gspread_client()
-        # Fetching vendor-specific data
         data = client.open_by_key(v['sheet_id']).sheet1.get_all_records()
         st.dataframe(pd.DataFrame(data), use_container_width=True)
 
@@ -69,7 +71,7 @@ elif menu == "Register as Vendor":
         sid = st.text_input("Google Sheet ID")
         if st.form_submit_button("Submit Application"):
             register_vendor(name, email, sid)
-            st.cache_data.clear() # Refresh registry for admin
+            st.cache_data.clear()
             st.success("Application sent! Awaiting admin approval.")
 
 elif menu == "Admin":
