@@ -6,77 +6,44 @@ import pandas as pd
 # --- CONFIGURATION ---
 st.set_page_config(
     page_title="VendorSpace", 
-    layout="centered", 
-    initial_sidebar_state="collapsed"
+    layout="centered"
 )
 
-# The ID of your Master_Registry sheet
+# Use your specific Sheet ID
 MASTER_SHEET_ID = "1I0672UQXrjuFRBK_dAgHWN5gnqQoc-8sT0iPyuQnLeE"
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+SCOPE = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource
 def get_gspread_client():
+    # Ensure 'gcp_service_account' is set in your Streamlit Cloud Secrets
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def get_master_registry():
-    client = get_gspread_client()
     try:
-        # We use the explicit ID here to ensure a direct connection
-        return client.open_by_key(MASTER_SHEET_ID).sheet1.get_all_records()
+        client = get_gspread_client()
+        # Direct access by key is the most reliable method
+        sheet = client.open_by_key(MASTER_SHEET_ID).sheet1
+        return sheet.get_all_records()
     except Exception as e:
-        st.error(f"Error connecting to Registry: {e}")
+        st.error(f"DEBUG: Could not connect to Sheet. Details: {e}")
         return []
-
-def register_vendor(name, email, sheet_id):
-    client = get_gspread_client()
-    registry_sheet = client.open_by_key(MASTER_SHEET_ID).sheet1
-    registry_sheet.append_row([name, email, sheet_id, "Pending"])
 
 def authenticate_vendor(email):
     registry = get_master_registry()
-    return next((v for v in registry if v['email'] == email), None)
+    if not registry: 
+        return None
+    return next((v for v in registry if v.get('email') == email), None)
 
 # --- APP INTERFACE ---
 st.title("🚀 VendorSpace")
+email_input = st.text_input("Enter business email")
 
-menu = st.sidebar.radio("Menu", ["Login", "Register as Vendor", "Admin"])
-
-if menu == "Login":
-    st.subheader("Vendor Portal")
-    email_input = st.text_input("Enter business email")
-    
-    if st.button("Login"):
-        vendor = authenticate_vendor(email_input)
-        if vendor and vendor['status'] == 'Active':
-            st.session_state['vendor'] = vendor
-            st.rerun()
-        else:
-            st.error("Account pending, not found, or access denied.")
-
-    if 'vendor' in st.session_state:
-        v = st.session_state['vendor']
-        st.success(f"Welcome, {v['vendor_name']}!")
-        client = get_gspread_client()
-        data = client.open_by_key(v['sheet_id']).sheet1.get_all_records()
-        st.dataframe(pd.DataFrame(data), use_container_width=True)
-
-elif menu == "Register as Vendor":
-    st.subheader("Join VendorSpace")
-    with st.form("signup"):
-        name = st.text_input("Business Name")
-        email = st.text_input("Work Email")
-        sid = st.text_input("Google Sheet ID")
-        if st.form_submit_button("Submit Application"):
-            register_vendor(name, email, sid)
-            st.cache_data.clear()
-            st.success("Application sent! Awaiting admin approval.")
-
-elif menu == "Admin":
-    admin_pass = st.text_input("Admin Password", type="password")
-    if admin_pass == st.secrets.get("ADMIN_PASSWORD"):
-        st.write("### Master Registry")
-        registry = get_master_registry()
-        st.dataframe(pd.DataFrame(registry), use_container_width=True)
+if st.button("Login"):
+    vendor = authenticate_vendor(email_input)
+    if vendor and vendor.get('status') == 'Active':
+        st.success(f"Welcome, {vendor['vendor_name']}!")
+    else:
+        st.error("Account not found, pending, or access denied.")
