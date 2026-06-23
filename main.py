@@ -6,14 +6,12 @@ from google.oauth2.service_account import Credentials
 @st.cache_resource
 def get_gspread_client():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    
-    # Securely reads credentials from Streamlit Secrets (DO NOT use open() anymore)
+    # This reads the dictionary from the Streamlit Secrets TOML
     creds_dict = dict(st.secrets["gcp_service_account"])
-    
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     return gspread.authorize(creds)
 
-# 2. CONNECT TO SHEET USING YOUR UNIQUE ID
+# 2. CONNECT TO SHEET
 SPREADSHEET_ID = "17f4PaRR5CTGqQ1X6MMEZ2um0N6YXtKWTKFR6Wjt5pGk"
 
 try:
@@ -38,6 +36,7 @@ with app_mode[1]:
     
     if st.button("Create My Shop"):
         if raw_vendor and new_pin and new_bank:
+            # Matches headers: Vendor Name, Admin PIN, Bank Account Details
             master_sheet.append_row([new_vendor, new_pin, new_bank])
             try:
                 new_ws = workbook.add_worksheet(title=new_vendor, rows="1000", cols="6")
@@ -51,10 +50,11 @@ with app_mode[1]:
 # CLIENT CHECKOUT
 with app_mode[0]:
     records = master_sheet.get_all_records()
+    # Ensure these keys match the exact header text in your Google Sheet
     active_vendors = [r["Vendor Name"] for r in records if r.get("Vendor Name")]
     
     if not active_vendors:
-        st.info("No shops registered yet.")
+        st.info("No shops registered yet. Please register one in the 'Vendor Registration' tab.")
     else:
         chosen_display = st.selectbox("Select Shop:", ["--"] + [v.replace("_", " ") for v in active_vendors])
         if chosen_display != "--":
