@@ -8,26 +8,26 @@ from google.oauth2.service_account import Credentials
 def get_gspread_client():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     
-    # Load from the local file instead of st.secrets
+    # Load credentials directly from the file in your repository
     with open("service_account.json") as f:
         key_dict = json.load(f)
-        
+    
     creds = Credentials.from_service_account_info(key_dict, scopes=scope)
     return gspread.authorize(creds)
 
 # 2. CONNECT TO SHEET
+# Replace with your actual Spreadsheet ID
 SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE" 
 
 try:
     client = get_gspread_client()
     workbook = client.open_by_key(SPREADSHEET_ID)
-    # Ensure your master sheet has a header 'Vendor Name' and 'Bank Account Details'
     master_sheet = workbook.get_worksheet(0)
 except Exception as e:
-    st.error(f"Connection Failed: {e}. Ensure service_account.json is in your project root.")
+    st.error(f"Connection Failed: {e}")
     st.stop()
 
-# 3. INTERFACE (Kept your logic, cleaned up the dictionary access)
+# 3. INTERFACE
 st.title("🚀 VendorSpace: Automated DM-Free Ordering")
 app_mode = st.tabs(["🛒 Shop & Order", "🏬 Vendor Registration"])
 
@@ -41,22 +41,19 @@ with app_mode[1]:
     
     if st.button("Create My Shop"):
         if raw_vendor and new_pin and new_bank:
-            # Append headers if new
             master_sheet.append_row([new_vendor, new_pin, new_bank])
             try:
                 new_ws = workbook.add_worksheet(title=new_vendor, rows="1000", cols="6")
                 new_ws.append_row(["Customer Name", "Phone", "Address", "Items", "Amount", "Reference"])
                 st.success("Shop Created!")
             except Exception as e:
-                st.error(f"Error creating sheet: {e}")
+                st.error(f"Error: {e}")
         else:
             st.error("All fields required.")
 
 # CLIENT CHECKOUT
 with app_mode[0]:
     records = master_sheet.get_all_records()
-    # Ensure these keys match your Google Sheet header exactly!
-    # If your headers are 'Business Name' and 'Bank Details', change them below:
     active_vendors = [r["Vendor Name"] for r in records if r.get("Vendor Name")]
     
     if not active_vendors:
