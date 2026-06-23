@@ -6,79 +6,67 @@ import pandas as pd
 # --- CONFIGURATION ---
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
+@st.cache_resource
 def get_gspread_client():
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
     return gspread.authorize(creds)
 
-# --- AUTHENTICATION & DATA ROUTING ---
 def get_master_registry():
     client = get_gspread_client()
-    # The 'Master_Registry' sheet tracks all vendors and their unique database keys
     return client.open("Master_Registry").sheet1.get_all_records()
+
+# --- FUNCTIONS ---
+def register_vendor(name, email, sheet_id):
+    client = get_gspread_client()
+    registry_sheet = client.open("Master_Registry").sheet1
+    registry_sheet.append_row([name, email, sheet_id, "Pending"])
 
 def authenticate_vendor(email):
     registry = get_master_registry()
     return next((v for v in registry if v['email'] == email), None)
 
-# --- APP UI ---
+# --- APP INTERFACE ---
 st.set_page_config(page_title="VendorSpace SaaS", layout="wide")
-st.title("🚀 VendorSpace: Multi-Vendor Platform")
+st.title("🚀 VendorSpace Platform")
 
-# Session State for Login
-if 'vendor' not in st.session_state:
+# 1. Main Navigation
+menu = st.sidebar.radio("Navigation", ["Login", "Register as Vendor", "Admin"])
+
+if menu == "Login":
     st.subheader("Vendor Portal Login")
     email_input = st.text_input("Enter your business email")
     if st.button("Login"):
-        vendor_info = authenticate_vendor(email_input)
-        if vendor_info and vendor_info['status'] == 'Active':
-            st.session_state['vendor'] = vendor_info
+        vendor = authenticate_vendor(email_input)
+        if vendor and vendor['status'] == 'Active':
+            st.session_state['vendor'] = vendor
             st.rerun()
         else:
-            st.error("Access Denied: Account not found or inactive.")
-    
-    # --- ADMIN ENTRY POINT ---
-    with st.expander("Admin Login"):
-        admin_key = st.text_input("Admin Password", type="password")
-        if admin_key == st.secrets.get("ADMIN_PASSWORD"):
-            st.session_state['admin'] = True
-            st.rerun()
+            st.error("Account pending or not found. Contact admin.")
 
-else:
-    # --- AUTHENTICATED VENDOR DASHBOARD ---
-    vendor = st.session_state['vendor']
-    st.sidebar.title(f"Welcome, {vendor['vendor_name']}")
-    
-    client = get_gspread_client()
-    vendor_sheet = client.open_by_key(vendor['sheet_id']).sheet1
-    
-    tab1, tab2 = st.tabs(["📊 Orders", "➕ Add Product"])
-    
-    with tab1:
-        st.subheader("Your Orders")
-        orders = vendor_sheet.get_all_records()
-        if orders:
-            st.dataframe(pd.DataFrame(orders))
-        else:
-            st.info("No orders received yet.")
-            
-    with tab2:
-        st.subheader("Manage Catalog")
-        # Logic to append new products to vendor_sheet
-        pass
+    if 'vendor' in st.session_state:
+        v = st.session_state['vendor']
+        st.success(f"Welcome {v['vendor_name']}!")
+        # Load Private Data
+        client = get_gspread_client()
+        data = client.open_by_key(v['sheet_id']).sheet1.get_all_records()
+        st.dataframe(pd.DataFrame(data))
 
-    if st.sidebar.button("Logout"):
-        del st.session_state['vendor']
-        st.rerun()
+elif menu == "Register as Vendor":
+    st.subheader("Join VendorSpace")
+    with st.form("signup"):
+        name = st.text_input("Business Name")
+        email = st.text_input("Work Email")
+        sid = st.text_input("Your Google Sheet ID")
+        if st.form_submit_button("Submit Application"):
+            register_vendor(name, email, sid)
+            st.success("Application sent! Awaiting admin approval.")
 
-# --- ADMIN PANEL ---
-if st.session_state.get('admin'):
-    st.sidebar.divider()
-    st.sidebar.header("Admin Control Panel")
-    new_name = st.sidebar.text_input("New Vendor Name")
-    new_email = st.sidebar.text_input("New Vendor Email")
-    new_key = st.sidebar.text_input("Google Sheet ID")
-    
-    if st.sidebar.button("Provision New Vendor"):
-        # Logic to append to Master_Registry
-        st.sidebar.success(f"Provisioned {new_name}")
+elif menu == "Admin":
+    admin_pass = st.text_input("Admin Password", type="password")
+    if admin_pass == st.secrets.get("ADMIN_PASSWORD"):
+        st.write("### All Pending Applications")
+        registry = get_master_registry()
+        df = pd.DataFrame(registry)
+        st.dataframe(df)
+        # Add logic here to approve/update status
