@@ -8,16 +8,15 @@ from google.oauth2.service_account import Credentials
 def get_gspread_client():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     
-    # Load credentials directly from the file in your repository
+    # Loads the service_account.json from your repository root
     with open("service_account.json") as f:
         key_dict = json.load(f)
     
     creds = Credentials.from_service_account_info(key_dict, scopes=scope)
     return gspread.authorize(creds)
 
-# 2. CONNECT TO SHEET
-# Replace with your actual Spreadsheet ID
-SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE" 
+# 2. CONNECT TO SHEET USING YOUR UNIQUE ID
+SPREADSHEET_ID = "17f4PaRR5CTGqQ1X6MMEZ2um0N6YXtKWTKFR6Wjt5pGk"
 
 try:
     client = get_gspread_client()
@@ -47,7 +46,7 @@ with app_mode[1]:
                 new_ws.append_row(["Customer Name", "Phone", "Address", "Items", "Amount", "Reference"])
                 st.success("Shop Created!")
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error creating shop: {e}")
         else:
             st.error("All fields required.")
 
