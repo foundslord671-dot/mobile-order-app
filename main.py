@@ -1,18 +1,16 @@
 import streamlit as st
 import gspread
-import json
 from google.oauth2.service_account import Credentials
 
-# 1. AUTHENTICATION ENGINE
+# 1. SECURE AUTHENTICATION ENGINE
 @st.cache_resource
 def get_gspread_client():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     
-    # Loads the service_account.json from your repository root
-    with open("service_account.json") as f:
-        key_dict = json.load(f)
+    # Securely reads credentials from Streamlit Secrets (DO NOT use open() anymore)
+    creds_dict = dict(st.secrets["gcp_service_account"])
     
-    creds = Credentials.from_service_account_info(key_dict, scopes=scope)
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     return gspread.authorize(creds)
 
 # 2. CONNECT TO SHEET USING YOUR UNIQUE ID
