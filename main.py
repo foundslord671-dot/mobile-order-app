@@ -1,94 +1,122 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-import random
+import json
 
-# 1. Secure connection to Google Sheets using Streamlit Secrets
-@st.cache_resource
-def connect_to_sheets():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds_dict = st.secrets["gcp_service_account"]
-    credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
-    client = gspread.authorize(credentials)
-    return client
-
-# Initialize client and open spreadsheet
+# 1. Database Core Connection
+scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 try:
-    client = connect_to_sheets()
-    sheet = client.open("Mobile Vendor DB")
-    inventory_sheet = sheet.worksheet("Inventory")
-    orders_sheet = sheet.worksheet("Orders")
+    secret_creds = json.loads(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(secret_creds, scopes=scope)
+    client = gspread.authorize(creds)
+    workbook = client.open("mobile vendor DB")
+    master_sheet = workbook.sheet1 # Sheet1 tracks registered vendors
 except Exception as e:
-    st.error("⚠️ System connecting to database... Setup required.")
+    st.error("Database connection setup required.")
     st.stop()
 
-# 2. Fetch inventory data from the Google Sheet dynamically
+# Ensure Master Registry has correct headers on initial launch
 try:
-    inventory_data = inventory_sheet.get_all_records()
+    if master_sheet.row_count == 0 or not master_sheet.row_values(1):
+        master_sheet.append_row(["Vendor Name", "Password/PIN", "Bank Account Details"])
+except Exception:
+    pass
+
+# 2. Main Portal Interface Layout
+st.title("🚀 VendorSpace: Automated DM-Free Ordering")
+st.write("The platform built for online vendors to receive clear orders without messy chats.")
+
+# Create navigation tabs at the top for Users vs Business Owners
+app_mode = st.tabs(["🛒 Shop & Order", "🏬 Vendor Registration"])
+
+# -------------------------------------------------------------
+# TAB 1: VENDOR REGISTRATION (Self-Service Onboarding)
+# -------------------------------------------------------------
+with app_mode[1]:
+    st.header("Register Your Online Business")
+    st.write("Fill this out to instantly launch your automated digital order page!")
     
-    available_items = {}
-    for row in inventory_data:
-        if int(row['Stock']) > 0:
-            item_label = f"{row['Item Name']} (₦{int(row['Price']):,})"
-            available_items[item_label] = {
-                "name": row['Item Name'],
-                "price": int(row['Price'])
-            }
+    new_vendor = st.text_input("Business/Shop Name:", key="reg_name").strip().replace(" ", "_")
+    new_pin = st.text_input("Create Account Admin PIN (4 Digits):", type="password", key="reg_pin")
+    new_bank = st.text_area("Your Bank Details (e.g., OPay - 1234567890 - Name):", key="reg_bank")
     
-    item_options = ["Select an item..."] + list(available_items.keys())
-except Exception as e:
-    st.error("Could not load inventory columns. Check your Google Sheet headers.")
-    st.stop()
-
-# 3. Mobile Layout Interface Setup
-st.set_page_config(page_title="Mobile Checkout Counter", layout="centered")
-st.title("🛍️ Fast Order Checkout")
-st.write("Fill out details to order instantly. The seller will be notified.")
-st.markdown("---")
-
-# Customer details collection
-st.subheader("👤 Customer Details")
-customer_name = st.text_input("Full Name", placeholder="e.g., Aliyu Chinedu")
-phone_number = st.text_input("WhatsApp Phone Number", placeholder="e.g., 0803XXXXXXX")
-delivery_address = st.text_area("Delivery Address", placeholder="Enter full delivery location...")
-
-# Order section selection
-st.subheader("📦 Order Selection")
-selected_display = st.selectbox("Choose Item", item_options)
-quantity = st.number_input("Quantity", min_value=1, max_value=10, value=1)
-
-st.markdown("---")
-
-# 4. Processing Order Logic on Button Click
-if st.button("Submit Order 🚀", use_container_width=True):
-    if not customer_name or not phone_number or selected_display == "Select an item...":
-        st.error("⚠️ Please fill out all required fields!")
-    else:
-        chosen_product = available_items[selected_display]
-        total_price = chosen_product["price"] * quantity
-        order_id = f"ORD-{random.randint(10000, 99999)}"
-        
-        new_order = [
-            order_id,
-            customer_name,
-            phone_number,
-            delivery_address,
-            chosen_product["name"],
-            quantity,
-            total_price,
-            "Unpaid"
-        ]
-        
-        try:
-            orders_sheet.append_row(new_order)
-            st.success(f"🎉 Order Submitted Successfully, {customer_name}!")
-            st.metric(label="Total Bill", value=f"₦{total_price:,}")
-            st.balloons()
+    if st.button("Create My Automated Shop Link"):
+        if new_vendor and new_pin and new_bank:
+            # Check if name is already taken
+            existing_records = master_sheet.get_all_records()
+            taken_names = [row["Vendor Name"] for row in existing_records]
             
-            st.info("💡 **Order Receipt Snapshot:**\n\n"
-                    f"**Order ID:** {order_id}\n"
-                    f"**Item:** {chosen_product['name']} x{quantity}\n"
-                    f"**Delivery to:** {delivery_address}")
-                    
-        except Exception as e:
-            st.error("Database connection timeout. Please check your credentials config.")
+            if new_vendor in taken_names:
+                st.error("❌ This Business Name is already registered. Please choose a slightly different variation.")
+            else:
+                # 1. Log them into the central directory
+                master_sheet.append_row([new_vendor, new_pin, new_bank])
+                
+                # 2. Automatically create a brand new sheet tab just for their incoming orders
+                try:
+                    new_ws = workbook.add_worksheet(title=new_vendor, rows="1000", cols="10")
+                    new_ws.append_row(["Customer Name", "Phone Number", "Delivery Address/Info", "Items Ordered", "Amount Paid", "Receipt Status"])
+                    st.success(f"🎉 Success! '{new_vendor.replace('_',' ')}' is now live. Customers can now select you from the shop tab.")
+                except Exception as ws_err:
+                    st.error("Shop registry succeeded, but workspace creation timed out. Please try again.")
+        else:
+            st.error("❌ All registration fields are required to generate your checkout workspace.")
+
+# -------------------------------------------------------------
+# TAB 0: CLIENT CHECKOUT SYSTEM (The Storefront Interface)
+# -------------------------------------------------------------
+with app_mode[0]:
+    # Fetch latest directory list directly from database
+    try:
+        records = master_sheet.get_all_records()
+        active_vendors = [row["Vendor Name"] for row in records if row["Vendor Name"]]
+    except Exception:
+        active_vendors = []
+
+    if not active_vendors:
+        st.info("💡 No stores are registered yet. Click the 'Vendor Registration' tab to set up the first store!")
+    else:
+        chosen_store = st.selectbox("🏬 Choose the store you are buying from:", ["-- Select Shop --"] + active_vendors)
+        
+        if chosen_store != "-- Select Shop --":
+            # Match metadata for selected shop
+            current_vendor_data = next(item for item in records if item["Vendor Name"] == chosen_store)
+            active_payment_info = current_vendor_data["Bank Account Details"]
+            
+            st.subheader(f"🛒 Shopping at: {chosen_store.replace('_', ' ')}")
+            st.info(f"📌 **Payment Instructions:**\n\nTransfer your total order value to:\n`{active_payment_info}`")
+            st.markdown("---")
+            
+            # Checkout Form Entry Fields
+            cust_name = st.text_input("Your Full Name:")
+            cust_phone = st.text_input("Your Phone/WhatsApp Number:")
+            cust_items = st.text_input("Items to Buy (e.g., 3GB Data, Red Dress, Size 42 Shoes):")
+            cust_cost = st.text_input("Total Bill Amount (₦):")
+            cust_address = st.text_area("Your Complete Delivery Address or Target Account Info:")
+            cust_receipt = st.file_uploader("Upload Your Payment Screenshot Confirmation:", type=["png", "jpg", "jpeg"])
+            
+            st.markdown("---")
+            
+            if st.button("Submit My Order"):
+                if cust_name and cust_phone and cust_items and cust_cost and cust_address:
+                    if cust_receipt:
+                        try:
+                            # Target the specific vendor's private spreadsheet tab dynamically
+                            vendor_target_sheet = workbook.worksheet(chosen_store)
+                            status_str = f"Uploaded: {cust_receipt.name}"
+                            
+                            vendor_target_sheet.append_row([
+                                cust_name, 
+                                cust_phone, 
+                                cust_address, 
+                                cust_items, 
+                                f"₦{cust_cost}", 
+                                status_str
+                            ])
+                            st.success(f"🎉 Order sent! {chosen_store.replace('_',' ')} has logged your details and payment screenshot.")
+                        except gspread.exceptions.WorksheetNotFound:
+                            st.error("Error connecting to this specific vendor's sheet partition.")
+                    else:
+                        st.warning("⚠️ Please attach your payment transfer screenshot to clear order verification.")
+                else:
+                    st.error("❌ Please provide all order, pricing, and delivery data before hitting submit.")
