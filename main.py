@@ -6,7 +6,7 @@ import pandas as pd
 # --- CONFIGURATION ---
 st.set_page_config(page_title="VendorSpace", layout="centered")
 
-# Use your exact ID string
+# Use your specific Sheet ID from the URL
 MASTER_SHEET_ID = "1I0672UQXrjuFRBK_dAgHWN5gnqQoc-8sT0iPyuQnLeE"
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
@@ -20,26 +20,21 @@ def get_gspread_client():
 def get_master_registry():
     try:
         client = get_gspread_client()
-        # Direct connection
-        spreadsheet = client.open_by_key(MASTER_SHEET_ID)
-        return spreadsheet.sheet1.get_all_records()
+        # Open directly by ID
+        sheet = client.open_by_key(MASTER_SHEET_ID).sheet1
+        return sheet.get_all_records()
     except Exception as e:
-        st.error(f"FATAL ERROR: {type(e).__name__} - {str(e)}")
-        # Debugging step: print the ID to the terminal to ensure it's correct
-        print(f"DEBUG: Attempting to connect to Sheet ID: {MASTER_SHEET_ID}")
-        return None
+        st.error(f"Error connecting to Registry: {e}")
+        return []
 
-def authenticate_vendor(email):
-    registry = get_master_registry()
-    if registry is None: return None
-    return next((v for v in registry if v.get('email') == email), None)
-
-# --- APP INTERFACE ---
+# --- APP LOGIC ---
 st.title("🚀 VendorSpace")
 email_input = st.text_input("Enter business email")
 
 if st.button("Login"):
-    vendor = authenticate_vendor(email_input)
+    registry = get_master_registry()
+    vendor = next((v for v in registry if v.get('email') == email_input), None)
+    
     if vendor and vendor.get('status') == 'Active':
         st.success(f"Welcome, {vendor.get('vendor_name')}!")
     else:
