@@ -2,11 +2,11 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
+import time
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="VendorSpace", layout="centered")
 
-# Use your specific Sheet ID from the URL
 MASTER_SHEET_ID = "1I0672UQXrjuFRBK_dAgHWN5gnqQoc-8sT0iPyuQnLeE"
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
@@ -18,16 +18,20 @@ def get_gspread_client():
 
 @st.cache_data(ttl=60)
 def get_master_registry():
-    try:
-        client = get_gspread_client()
-        # Open directly by ID
-        sheet = client.open_by_key(MASTER_SHEET_ID).sheet1
-        return sheet.get_all_records()
-    except Exception as e:
-        st.error(f"Error connecting to Registry: {e}")
-        return []
+    client = get_gspread_client()
+    # Retry logic for 503 errors
+    for attempt in range(3):
+        try:
+            return client.open_by_key(MASTER_SHEET_ID).sheet1.get_all_records()
+        except Exception as e:
+            if "503" in str(e) and attempt < 2:
+                time.sleep(2) # Wait 2 seconds before retrying
+                continue
+            st.error(f"Error connecting to Registry: {e}")
+            return []
+    return []
 
-# --- APP LOGIC ---
+# --- APP INTERFACE ---
 st.title("🚀 VendorSpace")
 email_input = st.text_input("Enter business email")
 
