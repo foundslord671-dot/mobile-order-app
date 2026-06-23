@@ -12,11 +12,13 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
     return gspread.authorize(creds)
 
+# --- OPTIMIZED FUNCTIONS ---
+# Cache the registry for 5 minutes (300 seconds) to prevent API rate limiting
+@st.cache_data(ttl=300)
 def get_master_registry():
     client = get_gspread_client()
     return client.open("Master_Registry").sheet1.get_all_records()
 
-# --- FUNCTIONS ---
 def register_vendor(name, email, sheet_id):
     client = get_gspread_client()
     registry_sheet = client.open("Master_Registry").sheet1
@@ -30,7 +32,6 @@ def authenticate_vendor(email):
 st.set_page_config(page_title="VendorSpace SaaS", layout="wide")
 st.title("🚀 VendorSpace Platform")
 
-# 1. Main Navigation
 menu = st.sidebar.radio("Navigation", ["Login", "Register as Vendor", "Admin"])
 
 if menu == "Login":
@@ -47,7 +48,7 @@ if menu == "Login":
     if 'vendor' in st.session_state:
         v = st.session_state['vendor']
         st.success(f"Welcome {v['vendor_name']}!")
-        # Load Private Data
+        # Fetching private data
         client = get_gspread_client()
         data = client.open_by_key(v['sheet_id']).sheet1.get_all_records()
         st.dataframe(pd.DataFrame(data))
@@ -60,6 +61,8 @@ elif menu == "Register as Vendor":
         sid = st.text_input("Your Google Sheet ID")
         if st.form_submit_button("Submit Application"):
             register_vendor(name, email, sid)
+            # Clear cache so admin sees new user immediately
+            st.cache_data.clear()
             st.success("Application sent! Awaiting admin approval.")
 
 elif menu == "Admin":
@@ -67,6 +70,4 @@ elif menu == "Admin":
     if admin_pass == st.secrets.get("ADMIN_PASSWORD"):
         st.write("### All Pending Applications")
         registry = get_master_registry()
-        df = pd.DataFrame(registry)
-        st.dataframe(df)
-        # Add logic here to approve/update status
+        st.dataframe(pd.DataFrame(registry))
