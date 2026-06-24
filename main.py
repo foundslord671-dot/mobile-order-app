@@ -1,50 +1,47 @@
 import streamlit as st
-import gspread
 from google.oauth2.service_account import Credentials
-import pandas as pd
+import gspread
 
-# --- APP CONFIGURATION ---
-st.set_page_config(page_title="VendorSpace", layout="centered")
-
-# REPLACE THIS with your specific Google Sheet ID from your URL
-# It's the long string of letters and numbers between /d/ and /edit
-MASTER_SHEET_ID = "1I0672UQXrjuFRBK_dAgHWN5gnqQoc-8sT0iPyuQnLeE"
-
-# Scopes required for Sheets and Drive access
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-
+# 1. SETUP CONNECTION
 @st.cache_resource
-def get_gspread_client():
-    """Authenticates the Google Sheets client using secrets."""
-    # Ensure 'gcp_service_account' is correctly formatted in Streamlit Secrets
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return gspread.authorize(creds)
-
-def get_data():
-    """Fetches data from the Google Sheet."""
+def get_sheets_connection():
     try:
-        client = get_gspread_client()
-        sheet = client.open_by_key(MASTER_SHEET_ID).sheet1
-        return sheet.get_all_records()
+        # This looks for the [gcp_service_account] section in your Streamlit Secrets
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict)
+        client = gspread.authorize(creds)
+        return client
     except Exception as e:
         st.error(f"Error connecting to Google Sheets: {e}")
         return None
 
-# --- APP INTERFACE ---
-st.title("🚀 VendorSpace")
-email_input = st.text_input("Enter business email")
+# 2. INITIALIZE CLIENT
+client = get_sheets_connection()
 
-if st.button("Login"):
-    data = get_data()
-    if data:
-        # Check if the email exists in the sheet
-        vendor = next((item for item in data if item.get('email') == email_input), None)
-        
-        if vendor and vendor.get('status') == 'Active':
-            st.success(f"Welcome, {vendor.get('vendor_name')}!")
-        else:
-            st.error("Account not found, inactive, or pending approval.")
+# 3. UI - VENDORSPACE LOGIN PAGE
+st.title("VendorSpace")
+st.write("Enter business email")
+
+user_email = st.text_input("Email", key="email_input")
+login_button = st.button("Login")
+
+# 4. LOGIN LOGIC
+if login_button:
+    if client:
+        try:
+            # Replace 'Your_Sheet_Name' with your actual Google Sheet name
+            # The service account email MUST be added as an Editor to that sheet!
+            sh = client.open("Your_Sheet_Name") 
+            worksheet = sh.sheet1
+            
+            # Basic check to see if email exists in column A
+            email_list = worksheet.col_values(1)
+            if user_email in email_list:
+                st.success("Login Successful!")
+            else:
+                st.error("Email not found. Please check your credentials.")
+                
+        except Exception as e:
+            st.error(f"Error accessing sheet: {e}")
+    else:
+        st.error("Could not establish connection to Google Sheets. Check your secrets.")
